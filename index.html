@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Johnny Trigger - Sniper Game</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    body { overflow: hidden; background: #000; font-family: 'Arial Rounded MT Bold', sans-serif; }
+    #canvas-container { width: 100vw; height: 100vh; position: absolute; top:0; left:0; }
+    
+    /* Top Bar HUD */
+    #top-bar {
+      position: absolute; top: 15px; right: 20px; z-index: 10;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(0, 0, 0, 0.4); padding: 8px 16px; border-radius: 20px;
+      color: #fff; font-size: 18px; font-weight: bold; border: 2px solid rgba(255,255,255,0.2);
+    }
+    .cash-icon { width: 24px; height: 16px; background: #2ecc71; border-radius: 3px; border: 1px solid #fff; }
+
+    /* Scope Overlay */
+    #scope-overlay {
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 5;
+      display: none; justify-content: center; align-items: center; pointer-events: none;
+    }
+    #scope-lens {
+      width: 380px; height: 380px; border-radius: 50%;
+      border: 10px solid #111; position: relative;
+      box-shadow: 0 0 0 2000px rgba(0, 0, 0, 0.92);
+    }
+    #crosshair-v { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #000; transform: translateX(-50%); }
+    #crosshair-h { position: absolute; top: 50%; left: 0; right: 0; height: 2px; background: #000; transform: translateY(-50%); }
+    #red-dot { position: absolute; top: 50%; left: 50%; width: 6px; height: 6px; background: #ff0000; border-radius: 50%; transform: translate(-50%, -50%); }
+
+    /* HUD Message */
+    #game-hud {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      z-index: 10; display: none; color: #fff; text-align: center; font-size: 20px;
+      background: rgba(0,0,0,0.6); padding: 8px 20px; border-radius: 12px;
+    }
+
+    /* Upgrade Menu Screen */
+    #upgrade-menu {
+      position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 20;
+      background: linear-gradient(135deg, #4a90e2 0%, #0052d4 100%);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+    }
+    .panel-title {
+      background: #3a75c4; color: #fff; padding: 6px 24px; border-radius: 12px;
+      font-size: 22px; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px;
+      box-shadow: 0 4px 0 #285593;
+    }
+    .btn-green {
+      background: #76c800; color: #fff; padding: 12px 30px; border-radius: 12px;
+      font-size: 18px; border: none; cursor: pointer; box-shadow: 0 5px 0 #528c00;
+      font-weight: bold; margin-top: 15px; text-transform: uppercase;
+    }
+    .btn-green:hover { background: #88e000; }
+    .btn-green:active { transform: translateY(3px); box-shadow: 0 2px 0 #528c00; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+  <div id="top-bar">
+    <span id="cash-text">300</span>
+    <div class="cash-icon"></div>
+  </div>
+
+  <div id="game-hud">
+    <div>MISSION 1</div>
+    <div style="font-size: 14px; color: #00ff66;">CLICK TO SCOPE & SHOOT ENEMY</div>
+  </div>
+
+  <!-- Scope Overlay -->
+  <div id="scope-overlay">
+    <div id="scope-lens">
+      <div id="crosshair-v"></div>
+      <div id="crosshair-h"></div>
+      <div id="red-dot"></div>
+    </div>
+  </div>
+
+  <!-- Workshop / Upgrade UI Screen -->
+  <div id="upgrade-menu">
+    <div class="panel-title">UPGRADES</div>
+    <div style="font-size: 14px; color: #e0e0e0; margin-bottom: 15px;">WORKSHOP BENCH & BLUE RIFLE READY</div>
+    <button class="btn-green" onclick="startGame()">ENTER MISSION ➔</button>
+  </div>
+
+  <div id="canvas-container"></div>
+
+  <script>
+    // --- 1. THREE.JS SCENE SETUP ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x4a90e2); // Bright blue sky backdrop
+
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 3, 10);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    // Lighting
+    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    sunLight.position.set(20, 40, 20);
+    sunLight.castShadow = true;
+    scene.add(sunLight);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+    // --- 2. WORKSHOP / BENCH OBJECTS ---
+    const benchGroup = new THREE.Group();
+    
+    // Wooden Workbench Surface
+    const benchGeo = new THREE.BoxGeometry(10, 0.4, 4);
+    const benchMat = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.8 });
+    const bench = new THREE.Mesh(benchGeo, benchMat);
+    bench.position.set(0, -0.2, 0);
+    benchGroup.add(bench);
+
+    // Blue Tactical Sniper Rifle
+    const rifleGroup = new THREE.Group();
+    
+    // Blue Stock
+    const stockMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(2.5, 0.35, 0.25),
+      new THREE.MeshStandardMaterial({ color: 0x1b4965, roughness: 0.4 })
+    );
+    rifleGroup.add(stockMesh);
+
+    // Silver Barrel
+    const barrelMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 3, 16),
+      new THREE.MeshStandardMaterial({ color: 0xc0c0c0, metalness: 0.8, roughness: 0.2 })
+    );
+    barrelMesh.rotation.z = Math.PI / 2;
+    barrelMesh.position.set(1.5, 0.1, 0);
+    rifleGroup.add(barrelMesh);
+
+    // Scope Mount & Scope
+    const scopeMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 0.8, 16),
+      new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.9 })
+    );
+    scopeMesh.rotation.z = Math.PI / 2;
+    scopeMesh.position.set(0.2, 0.35, 0);
+    rifleGroup.add(scopeMesh);
+
+    rifleGroup.position.set(0, 0.2, 0);
+    benchGroup.add(rifleGroup);
+
+    scene.add(benchGroup);
+
+    // --- 3. GAME STATE & CITY BUILD ---
+    let inGame = false;
+    let isScoped = false;
+    let enemyMesh = null;
+    let cash = 300;
+
+    function startGame() {
+      document.getElementById('upgrade-menu').style.display = 'none';
+      document.getElementById('game-hud').style.display = 'block';
+      inGame = true;
+      
+      // Camera Position on Rooftop
+      camera.position.set(0, 5, 20);
+      camera.lookAt(0, 8, -40);
+
+      // Hide Workbench, Build City
+      benchGroup.visible = false;
+      buildCityScene();
+    }
+
+    function buildCityScene() {
+      // Ground / City Floor
+      const cityFloor = new THREE.Mesh(
+        new THREE.PlaneGeometry(500, 500),
+        new THREE.MeshStandardMaterial({ color: 0x222222 })
+      );
+      cityFloor.rotation.x = -Math.PI / 2;
+      scene.add(cityFloor);
+
+      // Yellow Building
+      const building = new THREE.Mesh(
+        new THREE.BoxGeometry(12, 16, 12),
+        new THREE.MeshStandardMaterial({ color: 0xebd2b0 })
+      );
+      building.position.set(0, 8, -40);
+      scene.add(building);
+
+      // Enemy Target (Red Body, White Head)
+      const enemyGroup = new THREE.Group();
+      
+      const body = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.4, 0.4, 1.2, 16),
+        new THREE.MeshStandardMaterial({ color: 0xcc0000 })
+      );
+      enemyGroup.add(body);
+
+      const head = new THREE.Mesh(
+        new THREE.SphereGeometry(0.35, 16, 16),
+        new THREE.MeshStandardMaterial({ color: 0xffffff })
+      );
+      head.position.y = 0.8;
+      enemyGroup.add(head);
+
+      enemyGroup.position.set(0, 16.8, -40);
+      scene.add(enemyGroup);
+      enemyMesh = enemyGroup;
+    }
+
+    // Toggle Scope Zoom and Shoot with Click
+    window.addEventListener('click', () => {
+      if (!inGame) return;
+      
+      if (!isScoped) {
+        // First Click: Zoom Scope
+        isScoped = true;
+        document.getElementById('scope-overlay').style.display = 'flex';
+        camera.fov = 10;
+        camera.updateProjectionMatrix();
+      } else {
+        // Second Click: Fire Bullet
+        fireShot();
+      }
+    });
+
+    function fireShot() {
+      if (!enemyMesh) return;
+
+      // Hit effect: Eliminate enemy and reward cash
+      scene.remove(enemyMesh);
+      enemyMesh = null;
+      cash += 50;
+      document.getElementById('cash-text').innerText = cash;
+
+      // Reset Scope & Return to Menu
+      setTimeout(() => {
+        isScoped = false;
+        document.getElementById('scope-overlay').style.display = 'none';
+        camera.fov = 50;
+        camera.updateProjectionMatrix();
+        
+        alert("🎯 MISSION COMPLETED! +$50");
+        location.reload(); // Reset to Workshop
+      }, 300);
+    }
+
+    // --- 4. RENDER LOOP ---
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Slow rotation on menu screen for workbench display
+      if (!inGame) {
+        benchGroup.rotation.y += 0.005;
+      } else if (enemyMesh) {
+        // Idle sway for enemy target
+        enemyMesh.position.x = Math.sin(Date.now() * 0.002) * 1.5;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Window Resize Handler
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
